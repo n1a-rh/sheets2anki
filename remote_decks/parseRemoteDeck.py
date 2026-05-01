@@ -33,6 +33,8 @@ def build_remote_deck_from_csv(data):
     headers = [h.strip().lower() for h in data[0]]
     print("Headers:", headers)  # Debug message
 
+    id_index = headers.index('id') if 'id' in headers else None 
+
     question_index = headers.index('question') if 'question' in headers else headers.index('front') if 'front' in headers else 0
     answer_index = headers.index('answer') if 'answer' in headers else headers.index('back') if 'back' in headers else 1
     tag_index = headers.index('tags') if 'tags' in headers else None
@@ -46,6 +48,13 @@ def build_remote_deck_from_csv(data):
         # Skip empty rows
         if not any(cell.strip() for cell in row):
             print(f"Row {row_num} skipped because it is empty")
+            continue
+
+        anki_id = '' 
+        if id_index is not None:
+            anki_id = row[id_index].strip()
+        if not anki_id:
+            print(f"row {row_num} skipped: missing id")
             continue
 
         # Get question and answer
@@ -67,12 +76,14 @@ def build_remote_deck_from_csv(data):
         if re.search(r'{{c\d+::.*?}}', question_text):
             card_type = 'Cloze'
             fields = {
+                'AnkiID': anki_id,
                 'Text': question_text,
                 'Extra': answer_text  # The 'Extra' field can be empty
             }
         else:
             card_type = 'Basic'
             fields = {
+                'AnkiID': anki_id,
                 'Front': question_text,
                 'Back': answer_text
             }
