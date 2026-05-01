@@ -50,90 +50,71 @@ def create_or_update_notes(col, remoteDeck, deck_id):
     # Fetch existing notes in the deck
     for nid in col.find_notes(f'deck:"{remoteDeck.deckName}"'):
         note = col.get_note(nid)
-        # Determine the key based on available fields
-        if "Text" in note:
-            key = note["Text"]
-        elif "Front" in note:
-            key = note["Front"]
-        else:
-            continue  # Skip notes without 'Text' or 'Front' fields
-        existing_notes[key] = note
-        existing_note_ids[key] = nid
+        anki_id = note.get('AnkiID', '')
+        if not anki_id:
+            continue
+            
+        existing_notes[anki_id] = note
+        existing_note_ids[anki_id] = nid
 
     # Set to keep track of keys from Google Sheets
-    gs_keys = set()
+    gs_ids = set()
 
     for question in remoteDeck.questions:
         card_type = question['type']
         fields = question['fields']
         tags = question.get('tags', [])
-
-        if card_type == 'Cloze':
-            key = fields['Text']
-            gs_keys.add(key)
-            extra = fields.get('Extra', '')
-
-            if key in existing_notes:
-                # Update existing note
-                note = existing_notes[key]
-                note["Text"] = key
-                note["Extra"] = extra
-                note.tags = tags
-                note.flush()
-            else:
-                # Create new note
-                model_name = "Cloze"
-                model = col.models.by_name(model_name)
-                if model is None:
-                    showInfo("The 'Cloze' model does not exist. Please create a Cloze-type model in Anki.")
-                    continue
-
-                col.models.set_current(model)
-                model['did'] = deck_id
-                col.models.save(model)
-
-                note = col.new_note(model)
-                note["Text"] = key
-                note["Extra"] = extra
-                note.tags = tags
-                col.add_note(note, deck_id)
-
-        elif card_type == 'Basic':
-            key = fields['Front']
-            gs_keys.add(key)
-            back = fields.get('Back', '')
-
-            if key in existing_notes:
-                # Update existing note
-                note = existing_notes[key]
-                note["Front"] = key
-                note["Back"] = back
-                note.tags = tags
-                note.flush()
-            else:
-                # Create new note
-                model_name = "Basic"
-                model = col.models.by_name(model_name)
-                if model is None:
-                    showInfo("The 'Basic' model does not exist. Please create a Basic model in Anki.")
-                    continue
-
-                col.models.set_current(model)
-                model['did'] = deck_id
-                col.models.save(model)
-
-                note = col.new_note(model)
-                note["Front"] = key
-                note["Back"] = back
-                note.tags = tags
-                col.add_note(note, deck_id)
-        else:
-            showInfo(f"Unknown card type '{card_type}' for card '{key}'. Skipping.")
+        note_id = fields.get('AnkiID', '')
+        if not note_id:
+            showInfo(f"Skipping card without AnkiID: {fields.get('Front', 'Unknown')}")
             continue
+            
+        gs_ids.add(note_id)
 
+        if note_id in existing_notes:
+            note = existing_notes[note_id] # will update existing note
+        
+            if card_type == 'Cloze':
+                note["Text"] = fields.get('Text', '')
+                note["Extra"] = fields.get('Extra', '')
+            elif card_type == 'Basic':
+                note["Front"] = fields.get('Front', '')
+                note["Back"] = fields.get('Back', '')
+            else:
+                continue
+
+            note.tags = tags
+            note.flush()
+
+        else:
+            # creating new note
+            model_name = "Cloze" if card_type == 'Cloze' else "Basic"
+            model = col.models.by_name(model_name)
+
+            if model is None:
+                showInfo(f"the '{model_name}' doesnt exist, pls create")
+                continue
+
+            col.models.set_current(model)
+            model['did'] = deck_id
+            col.models.save(model)
+
+            note = col.new_note(model)
+
+            if card_type == 'Cloze':
+                note['Text'] = fields.get('Text', '')
+                note['Extra'] = fields.get('Extra', '')
+            elif card_type == 'Basic':
+                note['Front'] = fields.get('Front', '')
+                note['Back'] = fields.get('Back', '')
+                
+            note["AnkiID"] = note_id 
+            note.tags = tags
+            col.add_note(note, deck_id)
+  
     # Find notes that are in Anki but not in Google Sheets
-    anki_keys = set(existing_notes.keys())
-    notes_to_delete = anki_keys - gs_keys
+    anki_ids = set(existing_notes.keys())
+    notes_to_delete = anki_ids - gs_ids
 
     # Remove the corresponding notes
     if notes_to_delete:
